@@ -18,7 +18,9 @@ from cleverhans.utils_keras import KerasModelWrapper
 
 from PIL import Image
 import scipy.misc
+import cv2
 
+import pdb
 
 FLAGS = flags.FLAGS
 
@@ -110,8 +112,9 @@ def main(argv=None):
     targeted = False
     nb_adv_per_sample = str(nb_classes - 1) if targeted else '1'
     
+    n_adv = 1000
     cw = CarliniWagnerL2(model, back='tf', sess=sess)
-    adv_inputs = X_test[:100]
+    adv_inputs = X_test[:n_adv]
     adv_ys = None
     yname = "y"
     
@@ -125,22 +128,49 @@ def main(argv=None):
     }
     adv = cw.generate_np(adv_inputs, **cw_params)
 
+    #nFeatures = np.ndarray(shape=(n_adv,3))
+    #for i in range(0,n_adv):
+    #    img = adv_inputs[i]
+    #    fast = cv2.FastFeatureDetector_create()
+    #    kp = fast.detect(img,None)
+    #    nFeatures[i][0] = len(kp)
+    #    img = adv[i]
+    #    fast = cv2.FastFeatureDetector_create()
+    #    kp = fast.detect(img,None)
+    #    nFeatures[i][1] = len(kp)
+    #    nFeatures[i][2] = int(np.argmax(Y_test[i]))
+
+    #print('Format: Mean(Std)')
+    #for i in range(0,10):
+    #    pdb.set_trace()
+    #    rows = np.where(nFeatures[:,2] == i)
+    #    data = np.delete(nFeatures[rows], 2, 1)
+    #    mean = np.mean(data, 0)
+    #    std = np.std(data, 0)
+    #    print('Class{0} : Original Image {1:.2f}({2:.2f}) Adversarial Image {3:.2f}({4:.2f})'.format(i, mean[0], std[0], mean[1], std[1]))
+
+    adv_den = np.zeros(adv.shape)
+    for i in range(0, n_adv):
+        img = adv[i] * 255
+        img = img.astype('uint8')
+        dst = cv2.fastNlMeansDenoisingColored(img,None,10,10,7,21)
+        dst = dst.astype('float32')
+        dst /= 255
+        adv_den[i] = dst
+
     eval_params = {'batch_size': np.minimum(nb_classes, 10)}
-    original_accuracy = model_eval(sess, x, y, predictions, adv_inputs, Y_test[:100], args=eval_params)
+    original_accuracy = model_eval(sess, x, y, predictions, adv_inputs, Y_test[:n_adv], args=eval_params)
+    adv_accuracy = model_eval(sess, x, y, predictions, adv, Y_test[:n_adv], args=eval_params)
     print('Accuracy on original images {0:.4f}'.format(original_accuracy))
-    adv_accuracy = model_eval(sess, x, y, predictions, adv, Y_test[:100], args=eval_params)
     print('Accuracy on adversarial images {0:.4f}'.format(adv_accuracy))
+
+    adv_accuracy = model_eval(sess, x, y, predictions, adv_den, Y_test[:n_adv], args=eval_params)
+    print('Accuracy on denoised adversarial images {0:.4f}'.format(adv_accuracy))
+    
     percent_perturbed = np.mean(np.sum((adv - adv_inputs)**2, axis=(1, 2, 3))**.5)
-    print('Avg. L_2 norm of perturbations without noise {0:.4f}'.format(percent_perturbed))
-
-    for i in range(0,100):
-        img = adv_inputs[i]
-        filename = os.path.join("original-test-images", "img" + str(i) + ".jpg")
-        scipy.misc.imsave(filename, img)
-
-        img = adv[i]
-        filename = os.path.join("adversarial-images", "img" + str(i) + ".jpg")
-        scipy.misc.imsave(filename, img)
+    print('Avg. L_2 norm of perturbations adversarial samples {0:.4f}'.format(percent_perturbed))
+    percent_perturbed = np.mean(np.sum((adv - adv_inputs)**2, axis=(1, 2, 3))**.5)
+    print('Avg. L_2 norm of denoised perturbations {0:.4f}'.format(percent_perturbed))
 
     sess.close()
 
