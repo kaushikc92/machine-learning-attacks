@@ -16,8 +16,6 @@ from cleverhans.utils_tf import model_train, model_eval, tf_model_load
 from cleverhans.utils_keras import cnn_model
 from cleverhans.utils_keras import KerasModelWrapper
 
-import pdb
-
 FLAGS = flags.FLAGS
 
 def data_cifar10():
@@ -81,7 +79,8 @@ def main(argv=None):
     nb_adv_per_sample = str(nb_classes - 1) if targeted else '1'
 
     cw = CarliniWagnerL2(model, back='tf', sess=sess)
-    adv_inputs = X_test[:10]
+    n_adv = 1000
+    adv_inputs = X_test[:n_adv]
     adv_ys = None
     yname = "y"
 
@@ -106,14 +105,14 @@ def main(argv=None):
     noise = np.random.normal(0.0, sigma, adv.shape)
     adv_gauss = adv + noise
 
-    i1 = np.repeat(np.arange(0,10), n_samples)
-    i2 = np.random.randint(32, size = 10 * n_samples)
-    i3 = np.random.randint(32, size = 10 * n_samples)
+    i1 = np.repeat(np.arange(0,n_adv), n_samples)
+    i2 = np.random.randint(32, size = n_adv * n_samples)
+    i3 = np.random.randint(32, size = n_adv * n_samples)
 
     sample = adv[i1, i2, i3]
     noise = np.random.normal(0.0, sigma, sample.shape)
     noisy_samples = sample + noise
-    noisy_samples = np.reshape(noisy_samples, (10, n_samples, 3))
+    noisy_samples = np.reshape(noisy_samples, (n_adv, n_samples, 3))
 
     noise = np.random.normal(0.0, sigma, adv.shape)
 
@@ -161,29 +160,32 @@ def main(argv=None):
                 adv_rmix[img_no][pix_i][pix_j] = c_sum / weight_sum
 
     eval_params = {'batch_size': np.minimum(nb_classes, 10)}
+    orig_accuracy = model_eval(sess, x, y, predictions, adv_inputs, Y_test[:n_adv], args=eval_params)
 
-    adv_accuracy = 1 - model_eval(sess, x, y, predictions, adv, Y_test[:10], args=eval_params)
+    print('Original accuracy {0:.4f}'.format(orig_accuracy))
 
-    print('Avg. rate of successful adv. examples without noise {0:.4f}'.format(adv_accuracy))
+    adv_accuracy = model_eval(sess, x, y, predictions, adv, Y_test[:n_adv], args=eval_params)
+
+    print('Adversarial without noise {0:.4f}'.format(adv_accuracy))
 
     percent_perturbed = np.mean(np.sum((adv - adv_inputs)**2, axis=(1, 2, 3))**.5)
     print('Avg. L_2 norm of perturbations without noise {0:.4f}'.format(percent_perturbed))
 
-    adv_accuracy = 1 - model_eval(sess, x, y, predictions, adv_gauss, Y_test[:10], args=eval_params)
+    adv_accuracy = model_eval(sess, x, y, predictions, adv_gauss, Y_test[:n_adv], args=eval_params)
 
     print('Avg. rate of successful adv. examples with Gaussian noise {0:.4f}'.format(adv_accuracy))
 
     percent_perturbed = np.mean(np.sum((adv_gauss - adv_inputs)**2, axis=(1, 2, 3))**.5)
     print('Avg. L_2 norm of perturbations with Gaussian noise {0:.4f}'.format(percent_perturbed))
 
-    adv_accuracy = 1 - model_eval(sess, x, y, predictions, adv_rdesc, Y_test[:10], args=eval_params)
+    adv_accuracy = model_eval(sess, x, y, predictions, adv_rdesc, Y_test[:n_adv], args=eval_params)
 
     print('Avg. rate of successful adv. examples with random descent {0:.4f}'.format(adv_accuracy))
 
     percent_perturbed = np.mean(np.sum((adv_rdesc - adv_inputs)**2, axis=(1, 2, 3))**.5)
     print('Avg. L_2 norm of perturbations with random descent {0:.4f}'.format(percent_perturbed))
     
-    adv_accuracy = 1 - model_eval(sess, x, y, predictions, adv_rmix, Y_test[:10], args=eval_params)
+    adv_accuracy = model_eval(sess, x, y, predictions, adv_rmix, Y_test[:n_adv], args=eval_params)
 
     print('Avg. rate of successful adv. examples with random mixture {0:.4f}'.format(adv_accuracy))
 
